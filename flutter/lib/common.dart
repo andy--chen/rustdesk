@@ -2334,7 +2334,8 @@ connect(BuildContext context, String id,
     bool forceRelay = false,
     String? password,
     bool? isSharedPassword}) async {
-  if (id == '') return;
+  forceRelay = true;
+    if (id == '') return;
   if (!isDesktop || desktopType == DesktopType.main) {
     try {
       if (Get.isRegistered<IDTextEditingController>()) {
