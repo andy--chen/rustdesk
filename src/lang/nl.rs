@@ -130,7 +130,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Show quality monitor", "Kwaliteitsmonitor tonen"),
         ("Disable clipboard", "Klembord uitschakelen"),
         ("Lock after session end", "Vergrendelen na einde sessie"),
-        ("Insert", "Invoegen"),
+        ("Insert Ctrl + Alt + Del", "Ctrl + Alt + Del Invoegen"),
         ("Insert Lock", "Vergrendeling Invoegen"),
         ("Refresh", "Vernieuwen"),
         ("ID does not exist", "ID bestaat niet"),
@@ -653,5 +653,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Upload folder", "Map uploaden"),
         ("Upload files", "Bestanden uploaden"),
         ("Clipboard is synchronized", "Klembord is gesynchroniseerd"),
+        ("Update client clipboard", "Klembord van client bijwerken"),
+        ("Untagged", "Ongemarkeerd"),
+        ("new-version-of-{}-tip", "Er is een nieuwe versie van {} beschikbaar"),
     ].iter().cloned().collect();
 }
