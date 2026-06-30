@@ -59,7 +59,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
           path: artifacts
-          merge-multiple: true
+          merge-multiple: false
 
       - name: Download artifacts from selected build
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -68,7 +68,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.inputs.run_id }}
           path: artifacts
-          merge-multiple: true
+          merge-multiple: false
 
       - name: Download release assets
         shell: bash
@@ -90,6 +90,7 @@ jobs:
           import re
           import shutil
           import sys
+          import zipfile
           from pathlib import Path
 
           version = os.environ["CUSTOM_VERSION"].strip()
@@ -112,6 +113,7 @@ jobs:
               ".rpm",
               ".appimage",
               ".apk",
+              ".zip",
           }
 
           def sha256(path):
@@ -141,6 +143,8 @@ jobs:
 
               if ext in {".exe", ".msi"}:
                   return [("windows", arch or "x86_64", ext)]
+              if ext == ".zip" and "windows" in lower:
+                  return [("windows", arch or "x86_64", ext)]
               if ext in {".dmg", ".pkg"}:
                   return [("macos", arch or "x86_64", ext)]
               if ext in {".deb", ".rpm", ".appimage"}:
@@ -162,16 +166,36 @@ jobs:
                   ".dmg": 100,
                   ".appimage": 100,
                   ".apk": 100,
+                  ".zip": 95,
                   ".msi": 90,
                   ".pkg": 90,
                   ".deb": 80,
                   ".rpm": 70,
               }.get(ext, 0)
 
+          def zip_windows_portable_dir(app_dir, arch):
+              upload_name = f"rustdesk-{version}-windows-{arch}.zip"
+              dest = upload_download / upload_name
+              with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as zipf:
+                  for path in sorted(app_dir.rglob("*")):
+                      if path.is_file():
+                          zipf.write(path, path.relative_to(app_dir))
+              return dest
+
           packages = []
+          seen_windows_arches = set()
           for source_dir in source_dirs:
               if not source_dir.exists():
                   continue
+              for exe in source_dir.rglob("rustdesk.exe"):
+                  hint = str(exe.parent.relative_to(source_dir)).lower()
+                  if "windows" not in hint:
+                      continue
+                  arch = arch_from_name(hint) or "x86_64"
+                  if arch in seen_windows_arches:
+                      continue
+                  packages.append(zip_windows_portable_dir(exe.parent, arch))
+                  seen_windows_arches.add(arch)
               for path in source_dir.rglob("*"):
                   if not path.is_file():
                       continue
@@ -180,7 +204,7 @@ jobs:
                       continue
                   if not any(lower.endswith(suffix) for suffix in suffixes):
                       continue
-                  if "unsigned" in lower:
+                  if lower.endswith(".apk") and "unsigned" in lower:
                       continue
                   packages.append(path)
 
@@ -202,7 +226,8 @@ jobs:
                   upload_name = f"rustdesk-{version}-{first_os}-{first_arch}{source_ext}"
               dest = upload_download / upload_name
               if upload_name not in copied:
-                  shutil.copy2(package, dest)
+                  if package.resolve() != dest.resolve():
+                      shutil.copy2(package, dest)
                   copied[upload_name] = {
                       "url": f"{base_url}/download/{upload_name}",
                       "sha256": sha256(dest),
@@ -251,3 +276,20 @@ jobs:
           source: 'upload/download/*,upload/update/*'
           target: ${{ secrets.DEPLOY_PATH }}
           strip_components: 1
+
+      - name: Verify remote upload
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          script: |
+            set -e
+            mkdir -p '${{ secrets.DEPLOY_PATH }}/download' '${{ secrets.DEPLOY_PATH }}/update'
+            download_count=$(find '${{ secrets.DEPLOY_PATH }}/download' -maxdepth 1 -type f | wc -l)
+            update_count=$(find '${{ secrets.DEPLOY_PATH }}/update' -maxdepth 1 -type f | wc -l)
+            echo "download files: ${download_count}"
+            echo "update manifests: ${update_count}"
+            test "${download_count}" -gt 0
+            test "${update_count}" -gt 0
