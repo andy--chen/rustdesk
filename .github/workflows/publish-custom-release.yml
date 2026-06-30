@@ -3,10 +3,9 @@ name: Publish Custom RustDesk Release
 on:
   workflow_run:
     workflows:
-      - Custom RustDesk 1.4.8 Build
       - Flutter Tag Build
     branches:
-      - custom-1.4.8
+      - "custom-*"
     types:
       - completed
   workflow_dispatch:
@@ -30,9 +29,29 @@ jobs:
 
     env:
       PUBLIC_BASE_URL: https://rustdesk.shbupin.com
-      CUSTOM_VERSION: ${{ github.event.inputs.version || secrets.CUSTOM_VERSION || '1.4.8-custom.1' }}
 
     steps:
+      - name: Resolve custom release version
+        shell: bash
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+          VERSION_SECRET: ${{ secrets.CUSTOM_VERSION }}
+          BUILD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${VERSION_INPUT}"
+          if [ -z "$version" ]; then
+            if [[ "$BUILD_BRANCH" == custom-* ]]; then
+              version="${BUILD_BRANCH#custom-}-custom.1"
+            elif [ -n "$VERSION_SECRET" ]; then
+              version="$VERSION_SECRET"
+            else
+              version="1.4.8-custom.1"
+            fi
+          fi
+          echo "CUSTOM_VERSION=$version" >> "$GITHUB_ENV"
+          echo "Resolved custom release version: $version"
+
       - name: Download artifacts from completed build
         if: ${{ github.event_name == 'workflow_run' }}
         uses: actions/download-artifact@v4

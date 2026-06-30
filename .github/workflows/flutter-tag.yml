@@ -2,12 +2,44 @@ name: Flutter Tag Build
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Custom release version. Empty means derive from branch, for example custom-1.4.8 -> 1.4.8-custom.1"
+        required: false
+        default: ""
 
 jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      custom_version: ${{ steps.version.outputs.custom_version }}
+    steps:
+      - name: Resolve custom release version
+        id: version
+        shell: bash
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+          VERSION_SECRET: ${{ secrets.CUSTOM_VERSION }}
+        run: |
+          set -euo pipefail
+          version="${VERSION_INPUT}"
+          if [ -z "$version" ]; then
+            if [[ "$GITHUB_REF_NAME" == custom-* ]]; then
+              version="${GITHUB_REF_NAME#custom-}-custom.1"
+            elif [ -n "$VERSION_SECRET" ]; then
+              version="$VERSION_SECRET"
+            else
+              version="1.4.8-custom.1"
+            fi
+          fi
+          echo "custom_version=$version" >> "$GITHUB_OUTPUT"
+          echo "Resolved custom release version: $version"
+
   run-custom-rustdesk-build:
+    needs: resolve-version
     uses: ./.github/workflows/flutter-build.yml
     secrets: inherit
     with:
       upload-artifact: true
-      upload-tag: 1.4.8-custom.1
+      upload-tag: ${{ needs.resolve-version.outputs.custom_version }}
       desktop_only: true
