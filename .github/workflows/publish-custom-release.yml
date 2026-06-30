@@ -4,6 +4,7 @@ on:
   workflow_run:
     workflows:
       - Custom RustDesk 1.4.8 Build
+      - Flutter Tag Build
     branches:
       - custom-1.4.8
     types:
