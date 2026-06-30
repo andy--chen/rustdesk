@@ -76,8 +76,8 @@ void handleUpdate(String releasePageUrl) {
 class UpdateProgress extends StatefulWidget {
   final String releasePageUrl;
   final String downloadUrl;
-  final SimpleWrapper downloadId;
-  final SimpleWrapper onCanceled;
+  final SimpleWrapper<String> downloadId;
+  final SimpleWrapper<VoidCallback> onCanceled;
   UpdateProgress(
       this.releasePageUrl, this.downloadUrl, this.downloadId, this.onCanceled,
       {Key? key})
