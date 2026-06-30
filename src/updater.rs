@@ -132,10 +132,21 @@ fn check_update(manually: bool) -> ResultType<()> {
     if update_url.is_empty() {
         log::debug!("No update available.");
     } else {
-        let download_url = update_url.replace("tag", "download");
-        let version = download_url.split('/').last().unwrap_or_default();
+        let download_url = if crate::common::is_direct_software_update_url(&update_url) {
+            update_url
+        } else {
+            update_url.replace("tag", "download")
+        };
+        let update_version = crate::common::get_software_update_version();
+        let version = if update_version.is_empty() {
+            download_url.split('/').last().unwrap_or_default()
+        } else {
+            update_version.as_str()
+        };
         #[cfg(target_os = "windows")]
-        let download_url = if cfg!(feature = "flutter") {
+        let download_url = if crate::common::is_direct_software_update_url(&download_url) {
+            download_url
+        } else if cfg!(feature = "flutter") {
             format!(
                 "{}/rustdesk-{}-x86_64.{}",
                 download_url,

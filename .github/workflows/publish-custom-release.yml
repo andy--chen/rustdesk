@@ -1,65 +1,225 @@
 name: Publish Custom RustDesk Release
 
 on:
+  workflow_run:
+    workflows:
+      - Custom RustDesk 1.4.8 Build
+    branches:
+      - custom-1.4.8
+    types:
+      - completed
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Custom version, example: 1.4.8-custom.1'
+      run_id:
+        description: 'Completed Flutter Build run id to publish'
         required: true
-        default: '1.4.8-custom.1'
+      version:
+        description: 'Custom version, for example 1.4.8-custom.1'
+        required: false
+        default: ''
+
+permissions:
+  actions: read
+  contents: read
 
 jobs:
   publish:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
+    env:
+      PUBLIC_BASE_URL: https://rustdesk.shbupin.com
+      CUSTOM_VERSION: ${{ github.event.inputs.version || secrets.CUSTOM_VERSION || '1.4.8-custom.1' }}
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Download artifacts from completed build
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: artifacts
+          merge-multiple: true
 
-      - name: Show files
+      - name: Download artifacts from selected build
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.inputs.run_id }}
+          path: artifacts
+          merge-multiple: true
+
+      - name: Download release assets
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          find . -maxdepth 5 -type f | sed 's#^\./##' | sort | head -200
+          mkdir -p release-assets
+          gh release download "$CUSTOM_VERSION" \
+            --repo "${{ github.repository }}" \
+            --dir release-assets \
+            --pattern "rustdesk*" || true
 
-      - name: Find release files
-        shell: bash
+      - name: Generate download files and update manifests
+        shell: python
         run: |
-          mkdir -p upload/download upload/update
+          import hashlib
+          import json
+          import os
+          import re
+          import shutil
+          import sys
+          from pathlib import Path
 
-          EXE="$(find . -type f \( -name 'rustdesk*.exe' -o -name '*x86_64*.exe' \) | head -n 1 || true)"
-          MSI="$(find . -type f \( -name 'rustdesk*.msi' -o -name '*x86_64*.msi' \) | head -n 1 || true)"
+          version = os.environ["CUSTOM_VERSION"].strip()
+          base_url = os.environ["PUBLIC_BASE_URL"].rstrip("/")
+          if not version:
+              raise SystemExit("CUSTOM_VERSION is empty")
 
-          if [ -z "$EXE" ] && [ -z "$MSI" ]; then
-            echo "No exe or msi found in repository workspace."
-            echo "This publish workflow should run after you download/copy artifacts into the workspace, or it should be merged into the build workflow."
-            exit 1
-          fi
+          source_dirs = [Path("release-assets"), Path("artifacts")]
+          upload_download = Path("upload/download")
+          upload_update = Path("upload/update")
+          upload_download.mkdir(parents=True, exist_ok=True)
+          upload_update.mkdir(parents=True, exist_ok=True)
 
-          VERSION="${{ github.event.inputs.version }}"
-
-          if [ -n "$EXE" ]; then
-            EXE_BASE="rustdesk-${VERSION}-x86_64.exe"
-            cp "$EXE" "upload/download/$EXE_BASE"
-            SHA256="$(sha256sum "upload/download/$EXE_BASE" | awk '{print $1}')"
-
-            cat > upload/update/windows-x86_64.json <<EOF
-          {
-            "version": "$VERSION",
-            "platform": "windows-x86_64",
-            "url": "https://rustdesk.shbupin.com/download/$EXE_BASE",
-            "sha256": "$SHA256",
-            "force": false,
-            "notes": "内置 rustdesk.shbupin.com ID、中继、API 服务器配置。"
+          suffixes = {
+              ".exe",
+              ".msi",
+              ".dmg",
+              ".pkg",
+              ".deb",
+              ".rpm",
+              ".appimage",
+              ".apk",
           }
-          EOF
-          fi
 
-          if [ -n "$MSI" ]; then
-            MSI_BASE="rustdesk-${VERSION}-x86_64.msi"
-            cp "$MSI" "upload/download/$MSI_BASE"
-          fi
+          def sha256(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as f:
+                  for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
 
-          cat upload/update/windows-x86_64.json || true
+          def arch_from_name(name):
+              lower = name.lower()
+              if re.search(r"(aarch64|arm64)", lower):
+                  return "aarch64"
+              if re.search(r"(x86_64|x64|amd64)", lower):
+                  return "x86_64"
+              if re.search(r"(armv7|armeabi|armhf)", lower):
+                  return "arm"
+              if re.search(r"(^|[-_])x86($|[-_.])|i686", lower):
+                  return "x86"
+              return ""
+
+          def classify(path):
+              name = path.name
+              lower = name.lower()
+              ext = ".appimage" if lower.endswith(".appimage") else path.suffix.lower()
+              arch = arch_from_name(name)
+
+              if ext in {".exe", ".msi"}:
+                  return [("windows", arch or "x86_64", ext)]
+              if ext in {".dmg", ".pkg"}:
+                  return [("macos", arch or "x86_64", ext)]
+              if ext in {".deb", ".rpm", ".appimage"}:
+                  return [("linux", arch or "x86_64", ext)]
+              if ext == ".apk":
+                  if "universal" in lower:
+                      return [
+                          ("android", "aarch64", ext),
+                          ("android", "arm", ext),
+                          ("android", "x86_64", ext),
+                          ("android", "x86", ext),
+                      ]
+                  return [("android", arch or "aarch64", ext)]
+              return []
+
+          def rank(ext):
+              return {
+                  ".exe": 100,
+                  ".dmg": 100,
+                  ".appimage": 100,
+                  ".apk": 100,
+                  ".msi": 90,
+                  ".pkg": 90,
+                  ".deb": 80,
+                  ".rpm": 70,
+              }.get(ext, 0)
+
+          packages = []
+          for source_dir in source_dirs:
+              if not source_dir.exists():
+                  continue
+              for path in source_dir.rglob("*"):
+                  if not path.is_file():
+                      continue
+                  lower = path.name.lower()
+                  if lower in {"rustdesk.exe", "rustdesk"}:
+                      continue
+                  if not any(lower.endswith(suffix) for suffix in suffixes):
+                      continue
+                  if "unsigned" in lower:
+                      continue
+                  packages.append(path)
+
+          if not packages:
+              raise SystemExit("No release package artifacts found")
+
+          manifests = {}
+          copied = {}
+
+          for package in sorted(packages):
+              targets = classify(package)
+              if not targets:
+                  continue
+              first_os, first_arch, first_ext = targets[0]
+              source_ext = ".AppImage" if first_ext == ".appimage" else package.suffix
+              if first_ext == ".apk" and "universal" in package.name.lower():
+                  upload_name = f"rustdesk-{version}-android-universal{source_ext}"
+              else:
+                  upload_name = f"rustdesk-{version}-{first_os}-{first_arch}{source_ext}"
+              dest = upload_download / upload_name
+              if upload_name not in copied:
+                  shutil.copy2(package, dest)
+                  copied[upload_name] = {
+                      "url": f"{base_url}/download/{upload_name}",
+                      "sha256": sha256(dest),
+                      "rank": rank(first_ext),
+                  }
+
+              for os_name, arch, ext in targets:
+                  platform = f"{os_name}-{arch}"
+                  candidate = {
+                      "version": version,
+                      "platform": platform,
+                      "url": copied[upload_name]["url"],
+                      "sha256": copied[upload_name]["sha256"],
+                      "force": False,
+                      "notes": "Built-in rustdesk.shbupin.com ID, relay, and API server settings.",
+                      "_rank": rank(ext),
+                  }
+                  current = manifests.get(platform)
+                  if current is None or candidate["_rank"] > current["_rank"]:
+                      manifests[platform] = candidate
+
+          if not manifests:
+              raise SystemExit("No update manifests generated")
+
+          for platform, manifest in sorted(manifests.items()):
+              manifest.pop("_rank", None)
+              output = upload_update / f"{platform}.json"
+              output.write_text(
+                  json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+                  encoding="utf-8",
+              )
+              print(f"Generated {output}: {manifest['url']}")
+
+      - name: Show upload tree
+        shell: bash
+        run: |
+          find upload -maxdepth 3 -type f -print | sort
 
       - name: Upload to server
         uses: appleboy/scp-action@v0.1.7
@@ -69,5 +229,5 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
           source: 'upload/download/*,upload/update/*'
-          target: '/www/wwwroot/rustdesk.shbupin.com'
+          target: ${{ secrets.DEPLOY_PATH }}
           strip_components: 1

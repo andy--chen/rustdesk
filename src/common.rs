@@ -94,6 +94,7 @@ pub mod input {
 
 lazy_static::lazy_static! {
     pub static ref SOFTWARE_UPDATE_URL: Arc<Mutex<String>> = Default::default();
+    pub static ref SOFTWARE_UPDATE_VERSION: Arc<Mutex<String>> = Default::default();
     pub static ref DEVICE_ID: Arc<Mutex<String>> = Default::default();
     pub static ref DEVICE_NAME: Arc<Mutex<String>> = Default::default();
     static ref PUBLIC_IPV6_ADDR: Arc<Mutex<(Option<SocketAddr>, Option<Instant>)>> = Default::default();
@@ -940,19 +941,135 @@ pub fn is_modifier(evt: &KeyEvent) -> bool {
 }
 
 pub fn check_software_update() {
-    if is_custom_client() {
-        return;
-    }
     let opt = LocalConfig::get_option(keys::OPTION_ENABLE_CHECK_UPDATE);
     if config::option2bool(keys::OPTION_ENABLE_CHECK_UPDATE, &opt) {
         std::thread::spawn(move || allow_err!(do_check_software_update()));
     }
 }
 
-// No need to check `danger_accept_invalid_cert` for now.
+#[derive(Debug, Default, serde::Deserialize)]
+struct CustomSoftwareUpdate {
+    #[serde(default)]
+    version: String,
+    #[serde(default)]
+    url: String,
+}
+
+fn custom_software_update_platform() -> String {
+    let os = match std::env::consts::OS {
+        "macos" => "macos",
+        "windows" => "windows",
+        "linux" => "linux",
+        "android" => "android",
+        other => other,
+    };
+    let arch = match std::env::consts::ARCH {
+        "x86" => "x86",
+        "x86_64" => "x86_64",
+        "aarch64" => "aarch64",
+        "arm" => "arm",
+        other => other,
+    };
+    format!("{os}-{arch}")
+}
+
+#[inline]
+pub fn get_software_update_version() -> String {
+    let version = SOFTWARE_UPDATE_VERSION.lock().unwrap().clone();
+    if !version.is_empty() {
+        return version;
+    }
+    (*SOFTWARE_UPDATE_URL
+        .lock()
+        .unwrap()
+        .rsplit('/')
+        .next()
+        .unwrap_or(""))
+    .to_string()
+}
+
+#[inline]
+pub fn is_direct_software_update_url(url: &str) -> bool {
+    let url = url.to_ascii_lowercase();
+    [
+        ".exe",
+        ".msi",
+        ".dmg",
+        ".pkg",
+        ".deb",
+        ".rpm",
+        ".appimage",
+        ".apk",
+    ]
+    .iter()
+    .any(|ext| url.ends_with(ext))
+}
+
+fn clear_software_update() {
+    *SOFTWARE_UPDATE_URL.lock().unwrap() = String::new();
+    *SOFTWARE_UPDATE_VERSION.lock().unwrap() = String::new();
+}
+
+fn set_software_update(url: String, version: String) {
+    *SOFTWARE_UPDATE_URL.lock().unwrap() = url;
+    *SOFTWARE_UPDATE_VERSION.lock().unwrap() = version;
+}
+
+fn is_newer_software_version(version: &str) -> bool {
+    let new_version = get_version_number(version);
+    let current_version = get_version_number(crate::VERSION);
+    new_version > current_version || (new_version == current_version && version != crate::VERSION)
+}
+
+async fn do_check_custom_software_update() -> hbb_common::ResultType<bool> {
+    let api_server = get_api_server(
+        Config::get_option(keys::OPTION_API_SERVER),
+        Config::get_option(keys::OPTION_CUSTOM_RENDEZVOUS_SERVER),
+    );
+    if api_server.is_empty() || is_public(&api_server) {
+        return Ok(false);
+    }
+
+    let url = format!(
+        "{}/update/{}.json",
+        api_server.trim_end_matches('/'),
+        custom_software_update_platform()
+    );
+    let client = crate::hbbs_http::create_http_client_async_with_url(&url).await;
+    let response = client.get(&url).send().await?;
+    if !response.status().is_success() {
+        bail!("Failed to check custom update: {}", response.status());
+    }
+    let manifest: CustomSoftwareUpdate = response.json().await?;
+    if manifest.version.is_empty() || manifest.url.is_empty() {
+        bail!("Invalid custom update manifest: {}", url);
+    }
+
+    if is_newer_software_version(&manifest.version) {
+        #[cfg(feature = "flutter")]
+        {
+            let mut m = HashMap::new();
+            m.insert("name", "check_software_update_finish");
+            m.insert("url", &manifest.url);
+            if let Ok(data) = serde_json::to_string(&m) {
+                let _ = crate::flutter::push_global_event(crate::flutter::APP_TYPE_MAIN, data);
+            }
+        }
+        set_software_update(manifest.url, manifest.version);
+    } else {
+        clear_software_update();
+    }
+    Ok(true)
+}
+
+// No need to check `danger_accept_invalid_cert` for official updates.
 // Because the url is always `https://api.rustdesk.com/version/latest`.
 #[tokio::main(flavor = "current_thread")]
 pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
+    if do_check_custom_software_update().await? {
+        return Ok(());
+    }
+
     let (request, url) =
         hbb_common::version_check_request(hbb_common::VER_TYPE_RUSTDESK_CLIENT.to_string());
     let proxy_conf = Config::get_socks();
@@ -983,7 +1100,7 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
     let response_url = resp.url;
     let latest_release_version = response_url.rsplit('/').next().unwrap_or_default();
 
-    if get_version_number(&latest_release_version) > get_version_number(crate::VERSION) {
+    if is_newer_software_version(&latest_release_version) {
         #[cfg(feature = "flutter")]
         {
             let mut m = HashMap::new();
@@ -993,9 +1110,9 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
                 let _ = crate::flutter::push_global_event(crate::flutter::APP_TYPE_MAIN, data);
             }
         }
-        *SOFTWARE_UPDATE_URL.lock().unwrap() = response_url;
+        set_software_update(response_url, latest_release_version.to_string());
     } else {
-        *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
+        clear_software_update();
     }
     Ok(())
 }
