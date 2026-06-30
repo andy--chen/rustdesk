@@ -40,8 +40,9 @@ void handleUpdate(String releasePageUrl) {
     downloadUrl = '$downloadUrl/$downloadFile';
   }
 
-  SimpleWrapper downloadId = SimpleWrapper('');
-  SimpleWrapper<VoidCallback> onCanceled = SimpleWrapper(() {});
+  SimpleWrapper<String> downloadId = SimpleWrapper<String>('');
+  SimpleWrapper<VoidCallback> onCanceled =
+      SimpleWrapper<VoidCallback>(() {});
   gFFI.dialogManager.dismissAll();
   gFFI.dialogManager.show((setState, close, context) {
     return CustomAlertDialog(
