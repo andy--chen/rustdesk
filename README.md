@@ -12,6 +12,118 @@
 > **Misuse Disclaimer:** <br>
 > The developers of RustDesk do not condone or support any unethical or illegal use of this software. Misuse, such as unauthorized access, control or invasion of privacy, is strictly against our guidelines. The authors are not responsible for any misuse of the application.
 
+## 自定义 RustDesk 客户端构建、发布和官方同步
+
+本 fork 的生产分支是 `custom-1.4.8` 以及后续 `custom-x.y.z` 分支。不要直接用 GitHub 的 **Sync fork** 按钮同步默认分支，否则可能把官方 `master` 的未发布代码混入自定义编译分支。
+
+### 已内置的客户端配置
+
+当前自定义客户端会内置以下服务端配置：
+
+- ID 服务器：`rustdesk.shbupin.com`
+- 中继服务器：`rustdesk.shbupin.com:21117`
+- API 服务器：`https://rustdesk.shbupin.com`
+- Key：`zOtR7oPxtiXmy6bHXL+as8UGLeXciz+jSVGMEMYEH5s=`
+- 官方升级：关闭
+- 自定义升级：使用 `https://rustdesk.shbupin.com/update/<platform>.json`
+
+主要自定义代码位置：
+
+- `libs/hbb_common/src/config.rs`：内置 ID / relay / API / key / 默认选项。
+- `src/common.rs`：检查自定义升级 JSON。
+- `src/updater.rs`：下载并安装自定义升级包。
+- `src/ui_interface.rs`：向 Flutter UI 返回自定义版本号。
+- `flutter/lib/desktop/pages/desktop_home_page.dart`：允许自定义客户端显示升级卡片。
+- `flutter/lib/desktop/widgets/update_progress.dart`：支持直接升级包 URL。
+- `.github/workflows/flutter-tag.yml`：编译 Windows / Linux / macOS 桌面客户端。
+- `.github/workflows/publish-custom-release.yml`：生成下载包、升级 JSON 并上传服务器。
+- `.github/workflows/sync-upstream-release.yml`：检测官方新 tag，创建新 `custom-*` 分支并触发编译。
+
+### GitHub Secrets
+
+进入 `Settings` -> `Secrets and variables` -> `Actions`，至少配置：
+
+```text
+DEPLOY_HOST      ECS 公网 IP
+DEPLOY_PORT      22
+DEPLOY_USER      root
+DEPLOY_KEY       SSH 私钥
+DEPLOY_PATH      /www/wwwroot/rustdesk.shbupin.com
+```
+
+可选配置：
+
+```text
+WORKFLOW_TOKEN   用于跨 workflow 触发构建的 PAT；如果 GITHUB_TOKEN 可以触发 workflow_dispatch，可不填
+CUSTOM_VERSION   手动发布时的兜底版本号；自动分支会优先从 custom-x.y.z 推导为 x.y.z-custom.1
+```
+
+`WORKFLOW_TOKEN` 建议使用 classic PAT，至少具备当前仓库的 `repo` 和 `workflow` 权限。没有这个 token 时，`sync-upstream-release.yml` 会先尝试使用 `GITHUB_TOKEN` 触发 `Flutter Tag Build`。
+
+### 手动编译和上传
+
+1. 打开 `Actions`。
+2. 运行 `Flutter Tag Build`。
+3. Branch 选择当前自定义分支，例如 `custom-1.4.8`。
+4. `version` 留空时会自动从分支名推导，例如 `custom-1.4.8` -> `1.4.8-custom.1`。
+5. 构建成功后，`Publish Custom RustDesk Release` 会自动触发。
+6. 发布 workflow 会上传：
+   - 客户端安装包到 `/www/wwwroot/rustdesk.shbupin.com/download`
+   - 升级 JSON 到 `/www/wwwroot/rustdesk.shbupin.com/update`
+
+升级 JSON 文件按平台生成，例如：
+
+```text
+update/windows-x86_64.json
+update/windows-aarch64.json
+update/macos-x86_64.json
+update/macos-aarch64.json
+update/linux-x86_64.json
+update/linux-aarch64.json
+```
+
+### 自动同步官方新 tag
+
+`Sync Upstream Release Tag` workflow 支持定时和手动运行。
+
+自动流程：
+
+1. 拉取 `https://github.com/rustdesk/rustdesk` 的 tags。
+2. 找到最新的语义化 tag，例如 `1.4.9`。
+3. 基于官方 tag 创建 `custom-1.4.9`。
+4. 将当前自定义分支中从官方 tag 之后的自定义提交按顺序 cherry-pick 到新分支。
+5. 推送 `custom-1.4.9`。
+6. 触发 `Flutter Tag Build`，版本号为 `1.4.9-custom.1`。
+7. 构建成功后自动上传到服务器并生成升级 JSON。
+
+手动指定版本：
+
+1. 打开 `Actions` -> `Sync Upstream Release Tag`。
+2. `upstream_tag` 填官方 tag，例如 `1.4.9`；留空则自动选最新 tag。
+3. `source_custom_branch` 留空时使用当前分支；也可以填 `custom-1.4.8`。
+4. `dispatch_build` 保持 `true`。
+5. 运行 workflow。
+
+如果官方代码和自定义代码冲突，workflow 会在 cherry-pick 阶段失败。此时不要强行覆盖，应该手动解决冲突，确认上面的自定义功能清单没有丢失，再重新运行编译。
+
+### hbb_common 同步说明
+
+本仓库通过子模块使用 `andy--chen/hbb_common.git`。自动同步 RustDesk 新 tag 时，会保留当前自定义提交中的 hbb_common 子模块指针，确保内置服务器配置不丢失。
+
+如果官方新版本要求更新 hbb_common API，可能会出现编译失败。处理方式：
+
+1. 在 `andy--chen/hbb_common` 中基于官方 `rustdesk/hbb_common` 对应提交同步。
+2. 重新应用 `libs/hbb_common/src/config.rs` 中的内置 ID / relay / API / key / 升级选项。
+3. 推送 hbb_common。
+4. 回到本仓库更新 `libs/hbb_common` 子模块指针并提交。
+5. 重新运行 `Flutter Tag Build`。
+
+### 分支策略
+
+- `custom-x.y.z`：生产构建分支，默认分支应指向当前使用的 custom 分支。
+- `master`：建议保留为参考分支，不建议删除；如果确认不再需要，可在默认分支切到 `custom-*` 后删除。
+- 不建议直接把官方 `master` 合并到生产分支。生产客户端优先基于官方 release tag 构建。
+
 
 Chat with us: [Discord](https://discord.gg/nDceKgxnkV) | [Twitter](https://twitter.com/rustdesk) | [Reddit](https://www.reddit.com/r/rustdesk) | [YouTube](https://www.youtube.com/@rustdesk)
 

@@ -1,0 +1,186 @@
+name: Sync Upstream Release Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: "Official RustDesk tag to sync. Empty means latest semver tag."
+        required: false
+        default: ""
+      source_custom_branch:
+        description: "Custom branch used as the overlay source. Empty means current branch."
+        required: false
+        default: ""
+      dispatch_build:
+        description: "Run Flutter Tag Build after creating the custom branch."
+        type: boolean
+        required: false
+        default: true
+      force_update:
+        description: "Overwrite existing custom branch with --force-with-lease."
+        type: boolean
+        required: false
+        default: false
+  schedule:
+    - cron: "23 3 * * *"
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout custom source branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream and origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/rustdesk/rustdesk.git 2>/dev/null || true
+          git fetch --prune origin "+refs/heads/*:refs/remotes/origin/*"
+          git fetch --prune upstream "+refs/heads/*:refs/remotes/upstream/*"
+
+      - name: Resolve target tag and branch
+        id: resolve
+        shell: bash
+        env:
+          INPUT_UPSTREAM_TAG: ${{ github.event.inputs.upstream_tag }}
+          INPUT_SOURCE_BRANCH: ${{ github.event.inputs.source_custom_branch }}
+          INPUT_FORCE_UPDATE: ${{ github.event.inputs.force_update }}
+        run: |
+          set -euo pipefail
+
+          source_branch="$INPUT_SOURCE_BRANCH"
+          if [ -z "$source_branch" ]; then
+            source_branch="$GITHUB_REF_NAME"
+          fi
+          if [[ ! "$source_branch" =~ ^custom-[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::source_custom_branch must look like custom-1.4.8, got '$source_branch'"
+            exit 1
+          fi
+
+          source_tag="${source_branch#custom-}"
+          git fetch upstream "refs/tags/$source_tag:refs/tags/$source_tag"
+          if ! git rev-parse -q --verify "refs/tags/$source_tag" >/dev/null; then
+            echo "::error::Source tag '$source_tag' does not exist locally."
+            exit 1
+          fi
+          if ! git rev-parse -q --verify "refs/remotes/origin/$source_branch" >/dev/null; then
+            echo "::error::Source branch origin/$source_branch does not exist."
+            exit 1
+          fi
+
+          target_tag="$INPUT_UPSTREAM_TAG"
+          if [ -z "$target_tag" ]; then
+            target_tag="$(
+              git ls-remote --tags --refs upstream |
+                awk '{print $2}' |
+                sed 's#refs/tags/##' |
+                grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' |
+                sort -V |
+                tail -n 1
+            )"
+          fi
+          if [ -z "$target_tag" ]; then
+            echo "::error::No upstream semver tag found."
+            exit 1
+          fi
+          git fetch upstream "refs/tags/$target_tag:refs/tags/$target_tag"
+          if ! git rev-parse -q --verify "refs/tags/$target_tag" >/dev/null; then
+            echo "::error::Target tag '$target_tag' does not exist locally."
+            exit 1
+          fi
+
+          custom_branch="custom-$target_tag"
+          custom_version="$target_tag-custom.1"
+
+          if [ "$target_tag" = "$source_tag" ] && [ "$INPUT_FORCE_UPDATE" != "true" ]; then
+            echo "Latest upstream tag '$target_tag' is already the source tag '$source_tag'. Nothing to sync."
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --exit-code --heads origin "$custom_branch" >/dev/null 2>&1 && [ "$INPUT_FORCE_UPDATE" != "true" ]; then
+            echo "Branch '$custom_branch' already exists. Nothing to sync."
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skipped=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "source_branch=$source_branch" >> "$GITHUB_OUTPUT"
+          echo "source_tag=$source_tag" >> "$GITHUB_OUTPUT"
+          echo "target_tag=$target_tag" >> "$GITHUB_OUTPUT"
+          echo "custom_branch=$custom_branch" >> "$GITHUB_OUTPUT"
+          echo "custom_version=$custom_version" >> "$GITHUB_OUTPUT"
+
+          echo "Source branch: $source_branch"
+          echo "Source tag: $source_tag"
+          echo "Target tag: $target_tag"
+          echo "Custom branch: $custom_branch"
+          echo "Custom version: $custom_version"
+
+      - name: Create custom branch from upstream tag
+        if: ${{ steps.resolve.outputs.skipped != 'true' }}
+        shell: bash
+        env:
+          SOURCE_BRANCH: ${{ steps.resolve.outputs.source_branch }}
+          SOURCE_TAG: ${{ steps.resolve.outputs.source_tag }}
+          TARGET_TAG: ${{ steps.resolve.outputs.target_tag }}
+          CUSTOM_BRANCH: ${{ steps.resolve.outputs.custom_branch }}
+          FORCE_UPDATE: ${{ github.event.inputs.force_update }}
+        run: |
+          set -euo pipefail
+          git checkout -B "$CUSTOM_BRANCH" "$TARGET_TAG"
+
+          mapfile -t custom_commits < <(git rev-list --reverse "$SOURCE_TAG..origin/$SOURCE_BRANCH")
+          if [ "${#custom_commits[@]}" -eq 0 ]; then
+            echo "::error::No custom overlay commits found in $SOURCE_TAG..origin/$SOURCE_BRANCH"
+            exit 1
+          fi
+
+          for commit in "${custom_commits[@]}"; do
+            echo "Cherry-picking $commit"
+            git cherry-pick "$commit"
+          done
+
+          if [ "$FORCE_UPDATE" = "true" ]; then
+            git push --force-with-lease origin "HEAD:refs/heads/$CUSTOM_BRANCH"
+          else
+            git push origin "HEAD:refs/heads/$CUSTOM_BRANCH"
+          fi
+
+      - name: Dispatch custom desktop build
+        if: ${{ steps.resolve.outputs.skipped != 'true' && (github.event_name != 'workflow_dispatch' || github.event.inputs.dispatch_build == 'true') }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN || secrets.GITHUB_TOKEN }}
+          CUSTOM_BRANCH: ${{ steps.resolve.outputs.custom_branch }}
+          CUSTOM_VERSION: ${{ steps.resolve.outputs.custom_version }}
+        run: |
+          set -euo pipefail
+          gh workflow run flutter-tag.yml \
+            --repo "${{ github.repository }}" \
+            --ref "$CUSTOM_BRANCH" \
+            -f version="$CUSTOM_VERSION"
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "### Sync result"
+            echo ""
+            echo "- skipped: ${{ steps.resolve.outputs.skipped }}"
+            echo "- source: ${{ steps.resolve.outputs.source_branch }}"
+            echo "- target tag: ${{ steps.resolve.outputs.target_tag }}"
+            echo "- custom branch: ${{ steps.resolve.outputs.custom_branch }}"
+            echo "- custom version: ${{ steps.resolve.outputs.custom_version }}"
+          } >> "$GITHUB_STEP_SUMMARY"
