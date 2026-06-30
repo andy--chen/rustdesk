@@ -1097,7 +1097,11 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
     let bytes = latest_release_response.bytes().await?;
     let resp: hbb_common::VersionCheckResponse = serde_json::from_slice(&bytes)?;
     let response_url = resp.url;
-    let latest_release_version = response_url.rsplit('/').next().unwrap_or_default();
+    let latest_release_version = response_url
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .to_string();
 
     if is_newer_software_version(&latest_release_version) {
         #[cfg(feature = "flutter")]
@@ -1109,7 +1113,7 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
                 let _ = crate::flutter::push_global_event(crate::flutter::APP_TYPE_MAIN, data);
             }
         }
-        set_software_update(response_url, latest_release_version.to_string());
+        set_software_update(response_url, latest_release_version);
     } else {
         clear_software_update();
     }
