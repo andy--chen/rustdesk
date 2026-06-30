@@ -139,9 +139,13 @@ fn check_update(manually: bool) -> ResultType<()> {
         };
         let update_version = crate::common::get_software_update_version();
         let version = if update_version.is_empty() {
-            download_url.split('/').last().unwrap_or_default()
+            download_url
+                .split('/')
+                .last()
+                .unwrap_or_default()
+                .to_string()
         } else {
-            update_version.as_str()
+            update_version
         };
         #[cfg(target_os = "windows")]
         let download_url = if crate::common::is_direct_software_update_url(&download_url) {
