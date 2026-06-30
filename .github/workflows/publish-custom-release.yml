@@ -1,0 +1,73 @@
+name: Publish Custom RustDesk Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Custom version, example: 1.4.8-custom.1'
+        required: true
+        default: '1.4.8-custom.1'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show files
+        shell: bash
+        run: |
+          find . -maxdepth 5 -type f | sed 's#^\./##' | sort | head -200
+
+      - name: Find release files
+        shell: bash
+        run: |
+          mkdir -p upload/download upload/update
+
+          EXE="$(find . -type f \( -name 'rustdesk*.exe' -o -name '*x86_64*.exe' \) | head -n 1 || true)"
+          MSI="$(find . -type f \( -name 'rustdesk*.msi' -o -name '*x86_64*.msi' \) | head -n 1 || true)"
+
+          if [ -z "$EXE" ] && [ -z "$MSI" ]; then
+            echo "No exe or msi found in repository workspace."
+            echo "This publish workflow should run after you download/copy artifacts into the workspace, or it should be merged into the build workflow."
+            exit 1
+          fi
+
+          VERSION="${{ github.event.inputs.version }}"
+
+          if [ -n "$EXE" ]; then
+            EXE_BASE="rustdesk-${VERSION}-x86_64.exe"
+            cp "$EXE" "upload/download/$EXE_BASE"
+            SHA256="$(sha256sum "upload/download/$EXE_BASE" | awk '{print $1}')"
+
+            cat > upload/update/windows-x86_64.json <<EOF
+          {
+            "version": "$VERSION",
+            "platform": "windows-x86_64",
+            "url": "https://rustdesk.shbupin.com/download/$EXE_BASE",
+            "sha256": "$SHA256",
+            "force": false,
+            "notes": "内置 rustdesk.shbupin.com ID、中继、API 服务器配置。"
+          }
+          EOF
+          fi
+
+          if [ -n "$MSI" ]; then
+            MSI_BASE="rustdesk-${VERSION}-x86_64.msi"
+            cp "$MSI" "upload/download/$MSI_BASE"
+          fi
+
+          cat upload/update/windows-x86_64.json || true
+
+      - name: Upload to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          source: 'upload/download/*,upload/update/*'
+          target: '/www/wwwroot/rustdesk.shbupin.com'
+          strip_components: 1
