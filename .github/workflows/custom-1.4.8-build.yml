@@ -1,0 +1,12 @@
+name: Custom RustDesk 1.4.8 Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: ./.github/workflows/flutter-build.yml
+    secrets: inherit
+    with:
+      upload-artifact: true
+      upload-tag: 1.4.8-custom.1
