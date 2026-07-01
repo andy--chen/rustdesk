@@ -77,7 +77,7 @@ jobs:
           BUILD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
         run: |
           mkdir -p release-assets
-          for tag in "$CUSTOM_VERSION" "v$CUSTOM_VERSION" "$BUILD_BRANCH"; do
+          for tag in "$BUILD_BRANCH" "$CUSTOM_VERSION" "v$CUSTOM_VERSION"; do
             if [ -z "$tag" ]; then
               continue
             fi
