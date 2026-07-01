@@ -104,7 +104,6 @@ jobs:
           fi
 
           custom_branch="custom-$target_tag"
-          custom_version="$target_tag-custom.1"
 
           if [ "$target_tag" = "$source_tag" ] && [ "$INPUT_FORCE_UPDATE" != "true" ]; then
             echo "Latest upstream tag '$target_tag' is already the source tag '$source_tag'. Nothing to sync."
@@ -125,7 +124,7 @@ jobs:
           echo "Source tag: $source_tag"
           echo "Target tag: $target_tag"
           echo "Custom branch: $custom_branch"
-          echo "Custom version: $custom_version"
+          echo "Release version: $target_tag"
 
       - name: Create custom branch from upstream tag
         if: ${{ steps.resolve.outputs.skipped != 'true' }}

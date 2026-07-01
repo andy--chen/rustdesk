@@ -14,7 +14,7 @@ on:
         description: 'Completed Flutter Build run id to publish'
         required: true
       version:
-        description: 'Custom version, for example 1.4.8-custom.1'
+        description: 'Release version override, for example 1.4.8. Empty means derive from custom-x.y.z branch.'
         required: false
         default: ''
 
@@ -31,26 +31,23 @@ jobs:
       PUBLIC_BASE_URL: https://rustdesk.shbupin.com
 
     steps:
-      - name: Resolve custom release version
+      - name: Resolve release version
         shell: bash
         env:
           VERSION_INPUT: ${{ github.event.inputs.version }}
-          VERSION_SECRET: ${{ secrets.CUSTOM_VERSION }}
           BUILD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
         run: |
           set -euo pipefail
           version="${VERSION_INPUT}"
           if [ -z "$version" ]; then
-            if [ -n "$VERSION_SECRET" ]; then
-              version="$VERSION_SECRET"
-            elif [[ "$BUILD_BRANCH" == custom-* ]]; then
-              version="${BUILD_BRANCH#custom-}-custom.1"
+            if [[ "$BUILD_BRANCH" == custom-* ]]; then
+              version="${BUILD_BRANCH#custom-}"
             else
-              version="1.4.8-custom.1"
+              version="1.4.8"
             fi
           fi
-          echo "CUSTOM_VERSION=$version" >> "$GITHUB_ENV"
-          echo "Resolved custom release version: $version"
+          echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+          echo "Resolved release version: $version"
 
       - name: Download artifacts from completed build
         if: ${{ github.event_name == 'workflow_run' }}
@@ -77,7 +74,7 @@ jobs:
           BUILD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
         run: |
           mkdir -p release-assets
-          for tag in "$BUILD_BRANCH" "$CUSTOM_VERSION" "v$CUSTOM_VERSION"; do
+          for tag in "$BUILD_BRANCH" "$RELEASE_VERSION" "v$RELEASE_VERSION"; do
             if [ -z "$tag" ]; then
               continue
             fi
@@ -105,12 +102,12 @@ jobs:
           from pathlib import Path
           from urllib.parse import quote
 
-          version = os.environ["CUSTOM_VERSION"].strip()
+          version = os.environ["RELEASE_VERSION"].strip()
           base_url = os.environ["PUBLIC_BASE_URL"].rstrip("/")
           github_repository = os.environ.get("GITHUB_REPOSITORY", "").strip()
           release_asset_tag = os.environ.get("RELEASE_ASSET_TAG", "").strip()
           if not version:
-              raise SystemExit("CUSTOM_VERSION is empty")
+              raise SystemExit("RELEASE_VERSION is empty")
 
           source_dirs = [Path("release-assets"), Path("artifacts")]
           upload_download = Path("upload/download")

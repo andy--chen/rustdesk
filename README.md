@@ -32,7 +32,7 @@
 - `libs/hbb_common/src/config.rs`：内置 ID / relay / API / key / 默认选项。
 - `src/common.rs`：检查自定义升级 JSON。
 - `src/updater.rs`：下载并安装自定义升级包。
-- `src/ui_interface.rs`：向 Flutter UI 返回自定义版本号。
+- `src/ui_interface.rs`：向 Flutter UI 返回客户端版本号。
 - `flutter/lib/desktop/pages/desktop_home_page.dart`：允许自定义客户端显示升级卡片。
 - `flutter/lib/desktop/widgets/update_progress.dart`：支持直接升级包 URL。
 - `.github/workflows/flutter-tag.yml`：编译 Windows / Linux / macOS 桌面客户端。
@@ -55,21 +55,28 @@ DEPLOY_PATH      /www/wwwroot/rustdesk.shbupin.com
 
 ```text
 WORKFLOW_TOKEN   用于跨 workflow 触发构建的 PAT；如果 GITHUB_TOKEN 可以触发 workflow_dispatch，可不填
-CUSTOM_VERSION   手动发布时的兜底版本号；自动分支会优先从 custom-x.y.z 推导为 x.y.z-custom.1
 ```
 
 `WORKFLOW_TOKEN` 建议使用 classic PAT，至少具备当前仓库的 `repo` 和 `workflow` 权限。没有这个 token 时，`sync-upstream-release.yml` 会先尝试使用 `GITHUB_TOKEN` 触发 `Flutter Tag Build`。
+
+### 版本号策略
+
+客户端版本号和升级 JSON 的 `version` 均保持为官方 RustDesk 版本号，例如 `custom-1.4.8` 分支发布 `1.4.8`，`custom-1.4.9` 分支发布 `1.4.9`。
+
+本仓库不再使用 `CUSTOM_VERSION` Secret，也不再发布 `1.4.8-custom.1` 这类版本号。这样做的好处是版本号和官方 release tag 保持一致，后续同步官方新 tag 时不需要手动改版本。
+
+注意：如果只在同一个官方版本分支上重复编译，例如一直在 `custom-1.4.8` 上重编，客户端不会因为同版本 JSON 自动触发升级。需要客户端自动提示升级时，应同步到新的官方 tag，例如 `custom-1.4.9`。如果强行改成 `1.4.8.1` 这类非官方版本号，也能触发升级，但会偏离“跟官方版本保持一致”的策略。
 
 ### 手动编译和上传
 
 1. 打开 `Actions`。
 2. 运行 `Flutter Tag Build`。
 3. Branch 选择当前自定义分支，例如 `custom-1.4.8`。
-4. `version` 留空时会自动从分支名推导，例如 `custom-1.4.8` -> `1.4.8-custom.1`。
-5. 构建成功后，`Publish Custom RustDesk Release` 会自动触发。
-6. 发布 workflow 会上传：
-   - 客户端安装包到 `/www/wwwroot/rustdesk.shbupin.com/download`
+4. 构建成功后，`Publish Custom RustDesk Release` 会自动触发。
+5. 发布 workflow 会上传：
+   - Windows / Linux 客户端安装包到 `/www/wwwroot/rustdesk.shbupin.com/download`
    - 升级 JSON 到 `/www/wwwroot/rustdesk.shbupin.com/update`
+   - macOS 升级 JSON 指向 GitHub Release 中的 `.dmg`，不再把 macOS 安装包上传到服务器 `/download`
 
 升级 JSON 文件按平台生成，例如：
 
@@ -93,7 +100,7 @@ update/linux-aarch64.json
 3. 基于官方 tag 创建 `custom-1.4.9`。
 4. 将当前自定义分支中从官方 tag 之后的自定义提交按顺序 cherry-pick 到新分支。
 5. 推送 `custom-1.4.9`。
-6. 触发 `Flutter Tag Build`，版本号为 `1.4.9-custom.1`。
+6. 触发 `Flutter Tag Build`，版本号保持为官方版本 `1.4.9`。
 7. 构建成功后自动上传到服务器并生成升级 JSON。
 
 手动指定版本：
