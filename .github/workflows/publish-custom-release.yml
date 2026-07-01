@@ -87,6 +87,7 @@ jobs:
               --pattern "rustdesk*" || true
             if [ "$(find release-assets -type f -print -quit)" ]; then
               echo "Downloaded release assets from tag: $tag"
+              echo "RELEASE_ASSET_TAG=$tag" >> "$GITHUB_ENV"
               break
             fi
           done
@@ -102,9 +103,12 @@ jobs:
           import sys
           import zipfile
           from pathlib import Path
+          from urllib.parse import quote
 
           version = os.environ["CUSTOM_VERSION"].strip()
           base_url = os.environ["PUBLIC_BASE_URL"].rstrip("/")
+          github_repository = os.environ.get("GITHUB_REPOSITORY", "").strip()
+          release_asset_tag = os.environ.get("RELEASE_ASSET_TAG", "").strip()
           if not version:
               raise SystemExit("CUSTOM_VERSION is empty")
 
@@ -192,6 +196,23 @@ jobs:
                           zipf.write(path, path.relative_to(app_dir))
               return dest
 
+          def is_release_asset(path):
+              try:
+                  path.relative_to(Path("release-assets"))
+                  return True
+              except ValueError:
+                  return False
+
+          def package_sort_key(path):
+              return (0 if is_release_asset(path) else 1, str(path))
+
+          def github_release_asset_url(path):
+              if not github_repository or not release_asset_tag:
+                  return ""
+              tag = quote(release_asset_tag, safe="")
+              name = quote(path.name)
+              return f"https://github.com/{github_repository}/releases/download/{tag}/{name}"
+
           packages = []
           seen_windows_arches = set()
           for source_dir in source_dirs:
@@ -224,7 +245,7 @@ jobs:
           manifests = {}
           copied = {}
 
-          for package in sorted(packages):
+          for package in sorted(packages, key=package_sort_key):
               targets = classify(package)
               if not targets:
                   continue
@@ -236,13 +257,28 @@ jobs:
                   upload_name = f"rustdesk-{version}-{first_os}-{first_arch}{source_ext}"
               dest = upload_download / upload_name
               if upload_name not in copied:
-                  if package.resolve() != dest.resolve():
+                  github_url = ""
+                  if first_os == "macos" and is_release_asset(package):
+                      github_url = github_release_asset_url(package)
+                  if github_url:
+                      copied[upload_name] = {
+                          "url": github_url,
+                          "sha256": sha256(package),
+                          "rank": rank(first_ext),
+                      }
+                  elif package.resolve() != dest.resolve():
                       shutil.copy2(package, dest)
-                  copied[upload_name] = {
-                      "url": f"{base_url}/download/{upload_name}",
-                      "sha256": sha256(dest),
-                      "rank": rank(first_ext),
-                  }
+                      copied[upload_name] = {
+                          "url": f"{base_url}/download/{upload_name}",
+                          "sha256": sha256(dest),
+                          "rank": rank(first_ext),
+                      }
+                  else:
+                      copied[upload_name] = {
+                          "url": f"{base_url}/download/{upload_name}",
+                          "sha256": sha256(dest),
+                          "rank": rank(first_ext),
+                      }
 
               for os_name, arch, ext in targets:
                   platform = f"{os_name}-{arch}"
