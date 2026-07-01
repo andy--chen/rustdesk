@@ -1025,13 +1025,11 @@ fn normalize_custom_version(version: &str) -> String {
 }
 
 pub fn get_client_version() -> String {
-    if is_custom_client() {
-        let custom_version = normalize_custom_version(crate::CUSTOM_VERSION);
-        if custom_version.is_empty() {
-            format!("{}-custom.1", crate::VERSION)
-        } else {
-            custom_version
-        }
+    let custom_version = normalize_custom_version(crate::CUSTOM_VERSION);
+    if !custom_version.is_empty() {
+        custom_version
+    } else if is_custom_client() {
+        format!("{}-custom.1", crate::VERSION)
     } else {
         crate::VERSION.to_owned()
     }
