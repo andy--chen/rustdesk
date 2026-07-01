@@ -120,7 +120,6 @@ jobs:
           echo "source_tag=$source_tag" >> "$GITHUB_OUTPUT"
           echo "target_tag=$target_tag" >> "$GITHUB_OUTPUT"
           echo "custom_branch=$custom_branch" >> "$GITHUB_OUTPUT"
-          echo "custom_version=$custom_version" >> "$GITHUB_OUTPUT"
 
           echo "Source branch: $source_branch"
           echo "Source tag: $source_tag"
@@ -164,13 +163,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN || secrets.GITHUB_TOKEN }}
           CUSTOM_BRANCH: ${{ steps.resolve.outputs.custom_branch }}
-          CUSTOM_VERSION: ${{ steps.resolve.outputs.custom_version }}
         run: |
           set -euo pipefail
           gh workflow run flutter-tag.yml \
             --repo "${{ github.repository }}" \
-            --ref "$CUSTOM_BRANCH" \
-            -f version="$CUSTOM_VERSION"
+            --ref "$CUSTOM_BRANCH"
 
       - name: Summary
         shell: bash
@@ -182,5 +179,4 @@ jobs:
             echo "- source: ${{ steps.resolve.outputs.source_branch }}"
             echo "- target tag: ${{ steps.resolve.outputs.target_tag }}"
             echo "- custom branch: ${{ steps.resolve.outputs.custom_branch }}"
-            echo "- custom version: ${{ steps.resolve.outputs.custom_version }}"
           } >> "$GITHUB_STEP_SUMMARY"
