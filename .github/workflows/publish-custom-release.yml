@@ -80,6 +80,12 @@ jobs:
             --repo "${{ github.repository }}" \
             --dir release-assets \
             --pattern "rustdesk*" || true
+          if [ ! "$(find release-assets -type f -print -quit)" ]; then
+            gh release download "v$CUSTOM_VERSION" \
+              --repo "${{ github.repository }}" \
+              --dir release-assets \
+              --pattern "rustdesk*" || true
+          fi
 
       - name: Generate download files and update manifests
         shell: python
