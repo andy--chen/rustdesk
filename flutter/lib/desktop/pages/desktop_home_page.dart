@@ -451,11 +451,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           "${translate("new-version-of-{${bind.mainGetAppNameSync()}}-tip")} (${bind.mainGetNewVersion()}).",
           btnText,
           onPressed,
-          closeButton: true,
-          help: isToUpdate && !bind.isCustomClient() ? 'Changelog' : null,
-          link: isToUpdate && !bind.isCustomClient()
-              ? 'https://github.com/rustdesk/rustdesk/releases/tag/${bind.mainGetNewVersion()}'
-              : null);
+          closeButton: true);
     }
     if (systemError.isNotEmpty) {
       return buildInstallCard("", systemError, "", () {});
