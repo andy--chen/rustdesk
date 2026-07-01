@@ -1015,10 +1015,34 @@ fn set_software_update(url: String, version: String) {
     *SOFTWARE_UPDATE_VERSION.lock().unwrap() = version;
 }
 
+fn normalize_custom_version(version: &str) -> String {
+    let version = version.trim().trim_start_matches('v');
+    if let Some(tag_version) = version.strip_prefix("custom-") {
+        format!("{tag_version}-custom.1")
+    } else {
+        version.to_owned()
+    }
+}
+
+pub fn get_client_version() -> String {
+    if is_custom_client() {
+        let custom_version = normalize_custom_version(crate::CUSTOM_VERSION);
+        if custom_version.is_empty() {
+            format!("{}-custom.1", crate::VERSION)
+        } else {
+            custom_version
+        }
+    } else {
+        crate::VERSION.to_owned()
+    }
+}
+
 fn is_newer_software_version(version: &str) -> bool {
     let new_version = get_version_number(version);
-    let current_version = get_version_number(crate::VERSION);
-    new_version > current_version || (new_version == current_version && version != crate::VERSION)
+    let current_version = get_client_version();
+    let current_version_number = get_version_number(&current_version);
+    new_version > current_version_number
+        || (new_version == current_version_number && version != current_version)
 }
 
 async fn do_check_custom_software_update() -> hbb_common::ResultType<bool> {
