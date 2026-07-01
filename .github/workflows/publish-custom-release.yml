@@ -41,10 +41,10 @@ jobs:
           set -euo pipefail
           version="${VERSION_INPUT}"
           if [ -z "$version" ]; then
-            if [[ "$BUILD_BRANCH" == custom-* ]]; then
-              version="${BUILD_BRANCH#custom-}-custom.1"
-            elif [ -n "$VERSION_SECRET" ]; then
+            if [ -n "$VERSION_SECRET" ]; then
               version="$VERSION_SECRET"
+            elif [[ "$BUILD_BRANCH" == custom-* ]]; then
+              version="${BUILD_BRANCH#custom-}-custom.1"
             else
               version="1.4.8-custom.1"
             fi
