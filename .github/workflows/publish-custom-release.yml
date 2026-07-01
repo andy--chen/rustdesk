@@ -74,18 +74,22 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
         run: |
           mkdir -p release-assets
-          gh release download "$CUSTOM_VERSION" \
-            --repo "${{ github.repository }}" \
-            --dir release-assets \
-            --pattern "rustdesk*" || true
-          if [ ! "$(find release-assets -type f -print -quit)" ]; then
-            gh release download "v$CUSTOM_VERSION" \
+          for tag in "$CUSTOM_VERSION" "v$CUSTOM_VERSION" "$BUILD_BRANCH"; do
+            if [ -z "$tag" ]; then
+              continue
+            fi
+            gh release download "$tag" \
               --repo "${{ github.repository }}" \
               --dir release-assets \
               --pattern "rustdesk*" || true
-          fi
+            if [ "$(find release-assets -type f -print -quit)" ]; then
+              echo "Downloaded release assets from tag: $tag"
+              break
+            fi
+          done
 
       - name: Generate download files and update manifests
         shell: python
