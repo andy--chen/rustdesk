@@ -79,6 +79,7 @@ fn install_android_deps() {
 
 fn main() {
     hbb_common::gen_version();
+    write_custom_version();
     install_android_deps();
     #[cfg(all(windows, feature = "inline"))]
     build_manifest();
@@ -91,4 +92,21 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=ApplicationServices");
     }
     println!("cargo:rerun-if-changed=build.rs");
+}
+
+fn write_custom_version() {
+    use std::io::Write;
+
+    println!("cargo:rerun-if-env-changed=CUSTOM_VERSION");
+
+    let custom_version = std::env::var("CUSTOM_VERSION").unwrap_or_default();
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .append(true)
+        .open("./src/version.rs")
+    {
+        let escaped = custom_version.replace('\\', "\\\\").replace('"', "\\\"");
+        file.write_all(format!("pub const CUSTOM_VERSION: &str = \"{escaped}\";\n").as_bytes())
+            .ok();
+        file.sync_all().ok();
+    }
 }
