@@ -12,7 +12,7 @@ jobs:
   resolve-version:
     runs-on: ubuntu-latest
     outputs:
-      custom_version: ${{ steps.version.outputs.custom_version }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
     steps:
       - name: Resolve custom release version
         id: version
@@ -32,8 +32,12 @@ jobs:
               version="1.4.8-custom.1"
             fi
           fi
-          echo "custom_version=$version" >> "$GITHUB_OUTPUT"
-          echo "Resolved custom release version: $version"
+          release_tag="$version"
+          if [[ "$release_tag" != v* ]]; then
+            release_tag="v${release_tag}"
+          fi
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "Resolved custom release tag: $release_tag"
 
   run-custom-rustdesk-build:
     needs: resolve-version
@@ -41,5 +45,5 @@ jobs:
     secrets: inherit
     with:
       upload-artifact: true
-      upload-tag: ${{ needs.resolve-version.outputs.custom_version }}
+      upload-tag: ${{ needs.resolve-version.outputs.release_tag }}
       desktop_only: true
