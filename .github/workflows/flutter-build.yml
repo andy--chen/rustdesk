@@ -12,6 +12,9 @@ on:
       desktop_only:
         type: boolean
         default: false
+      include_mobile:
+        type: boolean
+        default: false
 
 # NOTE: F-Droid builder script 'flutter/build_fdroid.sh' reads environment
 # variables from this workflow!
@@ -54,6 +57,7 @@ env:
   MACOS_P12_BASE64: "${{ secrets.MACOS_P12_BASE64 }}"
   UPLOAD_ARTIFACT: "${{ inputs.upload-artifact }}"
   DESKTOP_ONLY: "${{ inputs.desktop_only }}"
+  INCLUDE_MOBILE: "${{ inputs.include_mobile }}"
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}-2"
 
 jobs:
@@ -533,7 +537,7 @@ jobs:
             ./SignOutput/rustdesk-*.exe
 
   build-rustdesk-ios:
-    if: ${{ inputs.upload-artifact && !inputs.desktop_only }}
+    if: ${{ inputs.upload-artifact && (inputs.include_mobile || !inputs.desktop_only) }}
     name: build rustdesk ios ipa
     runs-on: ${{ matrix.job.os }}
     needs: [generate-bridge]
@@ -635,21 +639,29 @@ jobs:
           # for easy debugging
           flutter build ipa --release --no-codesign
 
-      # - name: Upload Artifacts
-      #   # if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
-      #   uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-      #   with:
-      #     name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
-      #     path: flutter/build/ios/ipa/*.ipa
+      - name: Prepare IPA package
+        if: env.UPLOAD_ARTIFACT == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ipa="$(find flutter/build/ios/ipa -maxdepth 1 -name '*.ipa' -print -quit)"
+          test -n "$ipa"
+          cp "$ipa" "rustdesk-${VERSION}-ios-aarch64.ipa"
 
-      # - name: Publish ipa package
-      #   # if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
-      #   uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
-      #   with:
-      #     prerelease: true
-      #     tag_name: ${{ env.TAG_NAME }}
-      #     files: |
-      #       flutter/build/ios/ipa/*.ipa
+      - name: Upload IPA artifact
+        if: env.UPLOAD_ARTIFACT == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rustdesk-${{ env.VERSION }}-ios-aarch64.ipa
+          path: rustdesk-${{ env.VERSION }}-ios-aarch64.ipa
+
+      - name: Publish IPA package
+        if: env.UPLOAD_ARTIFACT == 'true'
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
+        with:
+          prerelease: true
+          tag_name: ${{ env.TAG_NAME }}
+          files: rustdesk-${{ env.VERSION }}-ios-aarch64.ipa
 
 
   build-for-macOS:
@@ -916,7 +928,7 @@ jobs:
   build-rustdesk-android:
     needs: [generate-bridge]
     name: build rustdesk android apk ${{ matrix.job.target }}
-    if: ${{ !inputs.desktop_only }}
+    if: ${{ inputs.include_mobile || !inputs.desktop_only }}
     runs-on: ${{ matrix.job.os }}
     strategy:
       fail-fast: false
@@ -1209,7 +1221,7 @@ jobs:
   build-rustdesk-android-universal:
     needs: [build-rustdesk-android]
     name: build rustdesk android universal apk
-    if: ${{ inputs.upload-artifact && !inputs.desktop_only }}
+    if: ${{ inputs.upload-artifact && (inputs.include_mobile || !inputs.desktop_only) }}
     runs-on: ubuntu-24.04
     env:
       reltype: release

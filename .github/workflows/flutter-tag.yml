@@ -2,6 +2,12 @@ name: Flutter Tag Build
 
 on:
   workflow_dispatch:
+    inputs:
+      include_mobile:
+        description: "Build Android APK and unsigned iOS IPA together with desktop clients."
+        type: boolean
+        required: false
+        default: true
 
 jobs:
   run-custom-rustdesk-build:
@@ -11,3 +17,4 @@ jobs:
       upload-artifact: true
       upload-tag: ${{ github.ref_name }}
       desktop_only: true
+      include_mobile: ${{ inputs.include_mobile }}
