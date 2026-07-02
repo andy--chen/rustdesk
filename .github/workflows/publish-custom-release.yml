@@ -124,6 +124,7 @@ jobs:
               ".rpm",
               ".appimage",
               ".apk",
+              ".ipa",
               ".zip",
           }
 
@@ -169,6 +170,8 @@ jobs:
                           ("android", "x86", ext),
                       ]
                   return [("android", arch or "aarch64", ext)]
+              if ext == ".ipa":
+                  return [("ios", arch or "aarch64", ext)]
               return []
 
           def rank(ext):
@@ -177,6 +180,7 @@ jobs:
                   ".dmg": 100,
                   ".appimage": 100,
                   ".apk": 100,
+                  ".ipa": 100,
                   ".zip": 95,
                   ".msi": 90,
                   ".pkg": 90,
