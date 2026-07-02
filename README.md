@@ -35,7 +35,7 @@
 - `src/ui_interface.rs`：向 Flutter UI 返回客户端版本号。
 - `flutter/lib/desktop/pages/desktop_home_page.dart`：允许自定义客户端显示升级卡片。
 - `flutter/lib/desktop/widgets/update_progress.dart`：支持直接升级包 URL。
-- `.github/workflows/flutter-tag.yml`：编译 Windows / Linux / macOS 桌面客户端。
+- `.github/workflows/flutter-tag.yml`：编译 Windows / Linux / macOS 桌面客户端，可选同时编译 Android APK 和 unsigned iOS IPA。
 - `.github/workflows/publish-custom-release.yml`：生成下载包、升级 JSON 并上传服务器。
 - `.github/workflows/sync-upstream-release.yml`：检测官方新 tag，创建新 `custom-*` 分支并触发编译。
 
@@ -65,7 +65,7 @@ ANDROID_KEY_PASSWORD
 
 Android 签名 Secrets 可选。不配置时 workflow 仍会生成 APK，但属于调试/未正式签名包；正式分发 Android 客户端时应配置自己的 keystore 签名信息。
 
-iOS workflow 生成的是 `--no-codesign` 的 unsigned IPA，只能作为构建产物或后续签名输入。真机安装、TestFlight 或正式分发仍需要 Apple Developer 证书、profile 和签名流程。
+iOS workflow 生成的是 `--no-codesign` 的 unsigned IPA。GitHub Actions 会把未签名的 `Runner.app` 手动打包成 IPA，它只能作为构建产物或后续签名输入。真机安装、TestFlight 或正式分发仍需要 Apple Developer 证书、profile 和签名流程。
 
 ### 版本号策略
 

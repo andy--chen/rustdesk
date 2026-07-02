@@ -634,19 +634,30 @@ jobs:
       - name: Build rustdesk
         shell: bash
         run: |
+          set -euo pipefail
           pushd flutter
-          # flutter build ipa --release --obfuscate --split-debug-info=./split-debug-info --no-codesign
+          # flutter build ipa --no-codesign builds an archive, then skips IPA export.
+          # Build the unsigned iOS app and package Payload/*.app manually below.
           # for easy debugging
-          flutter build ipa --release --no-codesign
+          flutter build ios --release --no-codesign
+          popd
 
-      - name: Prepare IPA package
+      - name: Prepare unsigned IPA package
         if: env.UPLOAD_ARTIFACT == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          ipa="$(find flutter/build/ios/ipa -maxdepth 1 -name '*.ipa' -print -quit)"
-          test -n "$ipa"
-          cp "$ipa" "rustdesk-${VERSION}-ios-aarch64.ipa"
+          app="flutter/build/ios/iphoneos/Runner.app"
+          if [ ! -d "$app" ]; then
+            app="$(find flutter/build/ios/archive -path '*/Products/Applications/*.app' -type d -print -quit || true)"
+          fi
+          test -n "$app"
+          test -d "$app"
+          rm -rf ipa-payload "rustdesk-${VERSION}-ios-aarch64.ipa"
+          mkdir -p ipa-payload/Payload
+          cp -R "$app" ipa-payload/Payload/
+          (cd ipa-payload && zip -qry "../rustdesk-${VERSION}-ios-aarch64.ipa" Payload)
+          test -s "rustdesk-${VERSION}-ios-aarch64.ipa"
 
       - name: Upload IPA artifact
         if: env.UPLOAD_ARTIFACT == 'true'
