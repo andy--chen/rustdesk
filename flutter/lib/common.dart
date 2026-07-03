@@ -3529,7 +3529,7 @@ importConfig(List<TextEditingController>? controllers, List<RxString>? errMsgs,
   if (text != null && text.isNotEmpty) {
     try {
       final sc = ServerConfig.decode(text);
-      if (isWeb || isIOS) {
+      if (isWeb) {
         sc.relayServer = '';
       }
       if (sc.idServer.isNotEmpty) {
