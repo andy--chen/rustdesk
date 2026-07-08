@@ -125,7 +125,7 @@ update/ios-aarch64.json
 4. `dispatch_build` 保持 `true`。
 5. 运行 workflow。
 
-如果官方代码和自定义代码冲突，workflow 会在 cherry-pick 阶段失败。此时不要强行覆盖，应该手动解决冲突，确认上面的自定义功能清单没有丢失，再重新运行编译。
+如果冲突只发生在 `libs/hbb_common` 子模块指针，workflow 会自动保留 `source_custom_branch` 中的 hbb_common 指针，确保内置服务器配置不丢失。如果官方源码或其它文件和自定义代码冲突，workflow 仍会在 cherry-pick 阶段失败。此时不要强行覆盖，应该手动解决冲突，确认上面的自定义功能清单没有丢失，再重新运行编译。
 
 ### hbb_common 同步说明
 
