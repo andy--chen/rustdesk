@@ -139,6 +139,8 @@ jobs:
           set -euo pipefail
           git checkout -B "$CUSTOM_BRANCH" "$TARGET_TAG"
 
+          source_hbb_common="$(git rev-parse "origin/$SOURCE_BRANCH:libs/hbb_common" 2>/dev/null || true)"
+
           mapfile -t custom_commits < <(git rev-list --reverse "$SOURCE_TAG..origin/$SOURCE_BRANCH")
           if [ "${#custom_commits[@]}" -eq 0 ]; then
             echo "::error::No custom overlay commits found in $SOURCE_TAG..origin/$SOURCE_BRANCH"
@@ -147,7 +149,25 @@ jobs:
 
           for commit in "${custom_commits[@]}"; do
             echo "Cherry-picking $commit"
-            git cherry-pick "$commit"
+            if git cherry-pick "$commit"; then
+              continue
+            fi
+
+            mapfile -t unmerged_paths < <(git diff --name-only --diff-filter=U)
+            if [ "${#unmerged_paths[@]}" -eq 1 ] && [ "${unmerged_paths[0]}" = "libs/hbb_common" ] && [ -n "$source_hbb_common" ]; then
+              echo "Resolving libs/hbb_common submodule pointer to origin/$SOURCE_BRANCH ($source_hbb_common)"
+              git update-index --cacheinfo 160000,"$source_hbb_common",libs/hbb_common
+              if git diff --cached --quiet; then
+                echo "Cherry-pick became empty after resolving libs/hbb_common; skipping."
+                git cherry-pick --skip
+              else
+                git cherry-pick --continue
+              fi
+            else
+              echo "::error::Cherry-pick failed for $commit. Manual conflict resolution is required."
+              git status --short
+              exit 1
+            fi
           done
 
           if [ "$FORCE_UPDATE" = "true" ]; then
